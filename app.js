@@ -31,9 +31,9 @@ const AI_PROMPT = `Pull the figures for my Shopify store and reply with a JSON o
   "fixedCosts": 0
 }
 
-What each one means. "aov" is average order value over the last 90 days, after discounts, before refunds. "refundRate" is refunds as a percentage of revenue, as a plain number like 2.5. "cogs" is the average product cost in one order — what you paid your supplier, not what you sell it for. "shipping" is the average shipping and fulfilment cost you pay per order, including pick and pack. "paymentFees" is your payment processing rate as a percentage, like 2.9. "other" is any remaining per-order cost such as packaging inserts, custom packaging or per-order app fees. "cac" is total ad spend divided by new customers over the same period. "ordersPerMonth" is average monthly orders. "fixedCosts" is monthly rent, salaries and software — anything paid whether you sell one order or a thousand.
+What each one means. "aov" is average order value over the last 90 days, after discounts, before refunds. "refundRate" is refunds as a percentage of revenue, as a plain number like 2.5. "cogs" is the average product cost in one order: what you paid your supplier, not what you sell it for. "shipping" is the average shipping and fulfilment cost you pay per order, including pick and pack. "paymentFees" is your payment processing rate as a percentage, like 2.9. "other" is any remaining per-order cost such as packaging inserts, custom packaging or per-order app fees. "cac" is total ad spend divided by new customers over the same period. "ordersPerMonth" is average monthly orders. "fixedCosts" is monthly rent, salaries and software: anything paid whether you sell one order or a thousand.
 
-Every money figure is a plain number in one currency, with no symbol, commas or spaces. Percentages are plain numbers, so 2.9 not 0.029. Use 0 for anything you genuinely cannot find — never estimate or invent a figure.
+Every money figure is a plain number in one currency, with no symbol, commas or spaces. Percentages are plain numbers, so 2.9 not 0.029. Use 0 for anything you genuinely cannot find, and never estimate or invent a figure.
 
 My store is:`;
 
@@ -76,7 +76,8 @@ function compute(d) {
     cm2Pct: netAov ? cm2 / netAov : 0,
     cm3Pct: netAov ? cm3 / netAov : 0,
     breakEvenCac: cm2,
-    breakEvenRoas: cm2 > 0 ? netAov / cm2 : 0,
+    // what the ad platform has to report: full order value, the same way the training and the Offer Simulator work it out
+    breakEvenRoas: cm2 > 0 ? d.aov / cm2 : 0,
     monthlyContribution: cm3 * d.ordersPerMonth,
     monthlyProfit: cm3 * d.ordersPerMonth - d.fixedCosts,
     breakEvenOrders: cm3 > 0 ? d.fixedCosts / cm3 : 0
@@ -128,7 +129,7 @@ function render() {
   heroEl.innerHTML = `
     <p class="hero-label">Contribution margin per order</p>
     <p class="hero-value">${money(headline, cur)}</p>
-    <p class="hero-note">${pct(headlinePct)} of net revenue${hasCac ? "" : " — add your acquisition cost to see the real figure"}</p>`;
+    <p class="hero-note">${pct(headlinePct)} of net revenue${hasCac ? "" : ". Add your acquisition cost to see the real figure"}</p>`;
 
   const lines = [row("Average order value", money(d.aov, cur), "")];
   if (d.refundRate > 0) {
@@ -190,7 +191,7 @@ function render() {
     monthlyEl.innerHTML = "";
   }
 
-  footNoteEl.textContent = "Payment fees are worked out on net revenue. Refunds reduce revenue but product cost is kept in full, which assumes a returned item cannot be resold — the conservative reading.";
+  footNoteEl.textContent = "Payment fees are worked out on net revenue. Refunds reduce revenue but product cost is kept in full, which assumes a returned item cannot be resold. That is the conservative reading.";
 }
 
 /* ---------- currency symbols ---------- */
@@ -290,9 +291,24 @@ pasteDialog.addEventListener("click", event => {
 
 document.querySelector("#closePaste").addEventListener("click", () => pasteDialog.close());
 
-document.querySelector("#copyPrompt").addEventListener("click", () => {
-  navigator.clipboard.writeText(AI_PROMPT).then(() => notify("AI instructions copied."));
-});
+// copy, with a fallback for browsers that block the clipboard
+function copyText(text, done) {
+  const fallback = () => {
+    const tmp = document.createElement("textarea");
+    tmp.value = text;
+    tmp.style.position = "fixed";
+    tmp.style.opacity = "0";
+    (document.querySelector("dialog[open]") || document.body).append(tmp);
+    tmp.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch {}
+    tmp.remove();
+    notify(ok ? done : "Your browser blocked copying. Try again in Chrome or Safari.");
+  };
+  try { navigator.clipboard.writeText(text).then(() => notify(done), fallback); } catch { fallback(); }
+}
+
+document.querySelector("#copyPrompt").addEventListener("click", () => copyText(AI_PROMPT, "AI instructions copied."));
 
 document.querySelector("#applyPaste").addEventListener("click", () => {
   const data = parsePasted(pasteInput.value);
@@ -302,7 +318,7 @@ document.querySelector("#applyPaste").addEventListener("click", () => {
     return;
   }
   if (!data.aov) {
-    pasteError.textContent = "Missing average order value — nothing can be worked out without it.";
+    pasteError.textContent = "Missing average order value. Nothing can be worked out without it.";
     pasteError.hidden = false;
     return;
   }
@@ -317,11 +333,27 @@ function resetAll() {
   form.elements.currency.value = "$";
   syncPrefixes();
   render();
-  notify("Reset.");
+  notify("Everything erased.");
   window.scrollTo({ top: 0 });
 }
 
-document.querySelector("#resetAll").addEventListener("click", resetAll);
+// clearing asks for a second click, like the other Conversion Alchemy tools
+let resetArmed = false, resetTimer;
+document.querySelector("#resetAll").addEventListener("click", event => {
+  const b = event.currentTarget;
+  if (!resetArmed) {
+    resetArmed = true;
+    b.textContent = "Click Again To Erase Everything";
+    b.classList.add("danger");
+    resetTimer = setTimeout(() => { resetArmed = false; b.textContent = "Clear All Data"; b.classList.remove("danger"); }, 4000);
+    return;
+  }
+  clearTimeout(resetTimer);
+  resetArmed = false;
+  b.textContent = "Clear All Data";
+  b.classList.remove("danger");
+  resetAll();
+});
 
 document.querySelector("#saveAll").addEventListener("click", () => {
   if (resultsSection.hidden) return notify("Enter your figures first.");

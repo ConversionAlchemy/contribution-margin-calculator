@@ -95,3 +95,5 @@ dialog textarea:focus { outline: 2px solid var(--black); outline-offset: 2px; }
   .results-section { position: static; }
   .results-box { padding: 0; border: 0; }
 }
+
+.danger { color: #c62828; }
